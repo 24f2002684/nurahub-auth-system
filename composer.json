@@ -1,0 +1,35 @@
+{
+  "name": "nurahub/auth-system",
+  "description": "Secure Authentication and User Profile System with MySQL, MongoDB, and Redis",
+  "type": "project",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "S.M. Suhail Akthar",
+      "email": "student@example.com"
+    }
+  ],
+  "require": {
+    "php": ">=8.1",
+    "ext-pdo": "*",
+    "ext-pdo_mysql": "*",
+    "ext-json": "*",
+    "ext-session": "*",
+    "vlucas/phpdotenv": "^5.6",
+    "mongodb/mongodb": "^1.15"
+  },
+  "suggest": {
+    "ext-redis": "Required for Redis-backed PHP session handling",
+    "ext-mongodb": "Required for native MongoDB driver performance"
+  },
+  "autoload": {
+    "psr-4": {
+      "NuraHub\\": "php/"
+    }
+  },
+  "config": {
+    "optimize-autoloader": true,
+    "sort-packages": true,
+    "allow-plugins": {}
+  }
+}

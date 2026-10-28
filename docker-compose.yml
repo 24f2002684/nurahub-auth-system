@@ -1,0 +1,104 @@
+services:
+  # Web & Application Service (PHP 8.3 + Apache)
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nurahub_app
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - .:/var/www/html
+    environment:
+      APP_ENV: development
+      APP_DEBUG: "true"
+      APP_URL: http://localhost:8080
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: nurahub_auth
+      MYSQL_USER: nurahub_user
+      MYSQL_PASSWORD: nurahub_secret_password
+      MYSQL_CHARSET: utf8mb4
+      MONGO_HOST: mongo
+      MONGO_PORT: 27017
+      MONGO_DATABASE: nurahub_profiles
+      MONGO_AUTH_SOURCE: admin
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PREFIX: "PHPREDIS_SESSION:"
+      REDIS_TIMEOUT: 2.5
+      SESSION_LIFETIME: 3600
+      SESSION_COOKIE_NAME: nurahub_session
+      SESSION_COOKIE_SECURE: "false"
+      SESSION_COOKIE_HTTPONLY: "true"
+      SESSION_COOKIE_SAMESITE: Lax
+    depends_on:
+      mysql:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # MySQL Relational Database (Authentication & User Accounts)
+  mysql:
+    image: mysql:8.0
+    container_name: nurahub_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root_secret_password
+      MYSQL_DATABASE: nurahub_auth
+      MYSQL_USER: nurahub_user
+      MYSQL_PASSWORD: nurahub_secret_password
+    ports:
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u $$MYSQL_USER --password=$$MYSQL_PASSWORD || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # MongoDB Document Database (Extended User Profiles)
+  mongo:
+    image: mongo:7.0
+    container_name: nurahub_mongo
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.runCommand({ ping: 1 })"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Redis Key-Value Store (Distributed PHP Session Storage & Rate Limiting)
+  redis:
+    image: redis:7-alpine
+    container_name: nurahub_redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  mysql_data:
+    driver: local
+  mongo_data:
+    driver: local
+  redis_data:
+    driver: local
