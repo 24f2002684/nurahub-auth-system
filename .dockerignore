@@ -1,0 +1,32 @@
+# Version control
+.git
+.gitignore
+.github
+
+# Environment and secrets (Never bake into images)
+.env
+.env.local
+.env.development
+.env.production
+.env.*.local
+
+# Dependencies (Installed reproducibly during Docker build)
+vendor/
+node_modules/
+
+# Local tests and development artifacts
+tests/
+docs/
+*.log
+*.tmp
+
+# Docker Compose files (local development only)
+docker-compose.yml
+docker-compose.*.yml
+
+# IDE files
+.vscode
+.idea
+.agents/
+*.sublime-project
+*.sublime-workspace

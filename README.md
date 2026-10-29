@@ -1,174 +1,155 @@
 # NuraHub Secure Authentication & User Profile System
 
-A production-grade, secure, responsive authentication and user profile web application built for a software development internship evaluation.
+A production-ready, secure, and responsive authentication and user profile web application designed for a software development internship evaluation.
 
-The system features a multi-tier decoupled database architecture leveraging **MySQL**, **MongoDB**, and **Redis** to demonstrate modern separation of concerns, defensive security practices, and distributed session management without heavy full-stack frameworks.
+The application implements a multi-tier decoupled database architecture leveraging **MySQL**, **MongoDB**, and **Redis** to demonstrate modern separation of concerns, defensive security practices, and distributed session management without heavy full-stack frameworks.
 
 ---
 
 ## Table of Contents
 
-1. [Project Overview](#project-overview)
-2. [Key Features](#key-features)
-3. [Technology Stack](#technology-stack)
-4. [Architecture Explanation](#architecture-explanation)
-5. [Folder Structure](#folder-structure)
-6. [Prerequisites](#prerequisites)
-7. [Installation & Local Setup](#installation--local-setup)
-   - [Option A: Running with Docker Compose (Recommended)](#option-a-running-with-docker-compose-recommended)
-   - [Option B: Running on Native Environment (Host / WSL)](#option-b-running-on-native-environment-host--wsl)
-8. [Database Initialization](#database-initialization)
-9. [How to Test the Application](#how-to-test-the-application)
-   - [Automated Integration Test Suite](#automated-integration-test-suite)
-   - [Manual End-to-End Browser Journey](#manual-end-to-end-browser-journey)
-10. [Security Measures Implemented](#security-measures-implemented)
-11. [Production Deployment Guide](#production-deployment-guide)
-12. [Troubleshooting & Known Limitations](#troubleshooting--known-limitations)
+1. [Architecture Overview](#1-architecture-overview)
+2. [Technology Stack](#2-technology-stack)
+3. [Project Structure](#3-project-structure)
+4. [Prerequisites & Required Software](#4-prerequisites--required-software)
+5. [Local Development Setup](#5-local-development-setup)
+   - [Option A: Running with Docker Compose](#option-a-running-with-docker-compose)
+   - [Option B: Running on Native Host / WSL](#option-b-running-on-native-host--wsl)
+6. [Environment Variables Reference](#6-environment-variables-reference)
+7. [External Cloud Services Setup Guide](#7-external-cloud-services-setup-guide)
+   - [Aiven Free MySQL Setup](#aiven-free-mysql-setup)
+   - [MongoDB Atlas Free Cluster Setup](#mongodb-atlas-free-cluster-setup)
+   - [Upstash Free Redis Setup](#upstash-free-redis-setup)
+8. [GitHub Preparation](#8-github-preparation)
+9. [Render Docker Deployment Guide](#9-render-docker-deployment-guide)
+10. [Database Schema & Safe Initialization](#10-database-schema--safe-initialization)
+11. [Health Checks & System Probes](#11-health-checks--system-probes)
+12. [Testing & Verification](#12-testing--verification)
+    - [Automated Integration Test Suite](#automated-integration-test-suite)
+    - [Testing Redis Session Persistence](#testing-redis-session-persistence)
+    - [Manual Browser Journey](#manual-browser-journey)
+13. [Security Measures Implemented](#13-security-measures-implemented)
+14. [Common Connection & TLS Troubleshooting](#14-common-connection--tls-troubleshooting)
+15. [Free-Tier Limitations & Cold-Start Behavior](#15-free-tier-limitations--cold-start-behavior)
 
 ---
 
-## Project Overview
+## 1. Architecture Overview
 
-Modern enterprise applications avoid monolithic single-database designs when different application capabilities have fundamentally different access patterns and data models:
-- **Relational Integrity:** Accounts and authentication require strict schema constraints, uniqueness guarantees, and ACID transactions (**MySQL**).
-- **Flexible Document Storage:** Extended user profiles, biographical notes, and variable tagging benefit from dynamic, semi-structured document modeling (**MongoDB**).
-- **High-Throughput State:** User sessions, token caches, and rate-limiting counters require sub-millisecond in-memory access and automatic time-to-live expirations (**Redis**).
+Modern distributed applications avoid single-database bottlenecks when application features have fundamentally different data models and performance requirements:
 
-NuraHub demonstrates how to integrate these three systems seamlessly in PHP 8.x using a clean, explainable architecture suitable for technical interviews.
-
----
-
-## Key Features
-
-- **Decoupled Database Architecture:**
-  - **MySQL:** Stores core credentials (`users` table) with prepared statements and Bcrypt hashing.
-  - **MongoDB:** Stores rich, semi-structured profiles (`user_profiles` collection) indexed uniquely by MySQL `user_id`.
-  - **Redis:** Manages distributed PHP sessions (`PHPREDIS_SESSION:*`) and brute-force rate-limiting (`login_ratelimit:*`).
-- **Defensive Security Controls:**
-  - Session-bound CSRF token validation on all state-changing endpoints (`POST`, `PUT`, `DELETE`).
-  - Session fixation defense (`session_regenerate_id(true)` upon privilege elevation).
-  - Strict cookies (`HttpOnly`, `SameSite=Lax`, and conditional `Secure`).
-  - Brute-force lockout: Blocks repeated invalid login attempts (5 failures in 5 minutes).
-  - Cross-database compensation rollback: Deletes orphaned MySQL user records if MongoDB profile creation fails.
-  - Contextual HTML output escaping to prevent Cross-Site Scripting (XSS).
-  - Information leakage prevention: Generic authentication errors prevent account enumeration.
-- **Responsive & Modern User Interface:**
-  - Modern, minimal styling built on **Bootstrap 5.3** and custom CSS.
-  - Asynchronous form submissions using **jQuery AJAX** (no full-page reloads).
-  - Real-time password strength meter and match confirmation.
-  - Skeleton loading states and dismissible notification banners.
-  - Disabled submit buttons with spinner indicators during active network requests.
-
----
-
-## Technology Stack
-
-| Layer | Technology | Purpose |
-|---|---|---|
-| **Frontend Structure** | HTML5 (Semantic) | Accessible document structure and meta tags |
-| **Frontend Styling** | CSS3 & Bootstrap 5.3 | Responsive layouts, typography, and card components |
-| **Frontend Interactions**| Vanilla JavaScript & jQuery 3.7 | DOM events, input validation, and asynchronous AJAX |
-| **Backend API** | PHP 8.1+ (8.3 tested) | RESTful JSON API endpoints, routing, and validation |
-| **Relational Database** | MySQL 8.0 | User accounts, credentials, unique constraints |
-| **NoSQL Document Store**| MongoDB 7.0 / 8.0 | Extended biographical profiles and interests |
-| **In-Memory Cache** | Redis 7.x | Server-side PHP session storage and rate limiting |
-| **Dependency Manager** | Composer 2.x | Official MongoDB PHP library & `vlucas/phpdotenv` |
-| **Containerization** | Docker & Docker Compose | Multi-container local development orchestration |
-
----
-
-## Architecture Explanation
+- **Relational Integrity (MySQL):** Core user accounts and authentication require strict schema constraints, uniqueness guarantees, and transactional ACID guarantees.
+- **Flexible Document Storage (MongoDB):** Extended profiles, user bios, variable attributes, and interest tags benefit from dynamic, semi-structured document modeling.
+- **High-Throughput Distributed State (Redis):** User sessions, rate-limiting counters, and CSRF states require sub-millisecond in-memory access and automatic time-to-live (TTL) expiration.
 
 ```
-[ Browser / Frontend Client ]
-           │
-           │ jQuery AJAX (JSON / Form Data + X-CSRF-Token)
-           ▼
-[ PHP 8.x Backend API ]
-   ├── php/config.php      -> Environment variables, Redis session handler, CSRF engine
-   ├── php/database.php    -> Singleton PDO (MySQL), MongoClient (MongoDB), Redis
-   ├── php/register.php    -> Input validation, Bcrypt, MySQL insert + Mongo profile + Compensation
-   ├── php/login.php       -> Redis rate limit, MySQL lookup, password_verify, session regeneration
-   ├── php/profile.php     -> Protected GET (MySQL+Mongo) & POST/PUT profile updater
-   ├── php/auth_check.php  -> Session status & CSRF token distributor
-   └── php/logout.php      -> Session destruction & cookie invalidation
-           │
- ┌─────────┼─────────────────────────┐
- │         │                         │
- ▼         ▼                         ▼
-[ MySQL ]  [ MongoDB ]               [ Redis ]
-users      user_profiles             PHPREDIS_SESSION:*
-table      collection                login_ratelimit:*
+                    ┌───────────────────────────────┐
+                    │  Browser / Client (Bootstrap) │
+                    └───────────────┬───────────────┘
+                                    │
+                                    │ HTTPS / AJAX (X-CSRF-Token)
+                                    ▼
+                    ┌───────────────────────────────┐
+                    │      Render Web Service       │
+                    │   (Docker + Apache + PHP 8)   │
+                    └───────┬───────┬───────┬───────┘
+                            │       │       │
+              TLS (Port 17702)      │       │ TLS (Port 6379)
+             ┌──────────────┘       │       └─────────────┐
+             ▼                      ▼                     ▼
+┌──────────────────────┐ ┌────────────────────┐ ┌───────────────────┐
+│     Aiven MySQL      │ │   MongoDB Atlas    │ │   Upstash Redis   │
+│ (User Accounts & Auth)│ │ (Profile Documents)│ │ (Server Sessions) │
+└──────────────────────┘ └────────────────────┘ └───────────────────┘
 ```
-
-For complete sequence and ER diagrams, refer to:
-- [Application Flow Documentation](docs/application-flow.md)
-- [Database Schema Documentation](docs/database-schema.md)
 
 ---
 
-## Folder Structure
+## 2. Technology Stack
 
-```text
+| Layer | Component | Version / Specification | Purpose |
+|---|---|---|---|
+| **Structure** | HTML5 | Living Standard | Semantic, accessible page layouts |
+| **Styling** | CSS3 & Bootstrap | Bootstrap 5.3 + Custom CSS | Responsive UI components, cards, forms |
+| **Interactivity** | JavaScript & jQuery | jQuery 3.7.1 | Asynchronous AJAX form submission (no full-page reloads) |
+| **Backend API** | PHP | 8.1+ (8.3 in Production) | JSON API endpoints, authentication, validation |
+| **Relational DB** | MySQL | 8.0+ (Aiven Cloud / Local) | User accounts, credentials, unique constraints |
+| **Document Store**| MongoDB | 7.0+ (Atlas Cloud / Local) | Rich biographical user profiles and interests |
+| **Session Cache** | Redis | 7.x (Upstash TLS / Local) | Distributed server-side PHP sessions & rate-limiting |
+| **Packaging** | Docker & Compose | Multi-stage Dockerfile | Container packaging for Render & local orchestration |
+| **Dependencies** | Composer | 2.x | Official MongoDB driver, Predis (TLS), phpdotenv |
+
+---
+
+## 3. Project Structure
+
+```
 nurahub-auth-system/
-├── assets/
-│   └── favicon.svg              # Brand icon
+├── assets/                  # Static assets and images
+├── certs/                   # CA certificates (e.g., Aiven Project CA)
 ├── css/
-│   └── style.css                # Custom UI styling, badges, and animations
+│   └── style.css            # Custom responsive styling and theme overrides
 ├── js/
-│   ├── login.js                 # AJAX login submission & rate-limit feedback
-│   ├── profile.js               # Dashboard data loader, profile editor & logout
-│   └── register.js              # Validation, password strength meter & AJAX registration
+│   ├── auth.js              # Global session checker and CSRF distributor
+│   ├── login.js             # Login form AJAX handler and validation
+│   ├── profile.js           # Profile loader and update AJAX handler
+│   └── register.js          # Registration AJAX handler & password strength meter
 ├── php/
-│   ├── auth_check.php           # Session status and CSRF token endpoint
-│   ├── config.php               # Environment loading, Redis sessions & helpers
-│   ├── csrf.php                 # Dedicated CSRF token bootstrap endpoint
-│   ├── database.php             # Unified database connection layer (MySQL, Mongo, Redis)
-│   ├── login.php                # Authentication, rate limiting & session initiation
-│   ├── logout.php               # Session destruction & cookie expiration
-│   ├── profile.php              # Authenticated profile retrieval and update
-│   └── register.php             # Account registration & cross-DB compensation
+│   ├── auth_check.php       # Session verification and CSRF token generator
+│   ├── config.php           # Central environment loader & Redis session engine
+│   ├── csrf.php             # Standalone CSRF token endpoint
+│   ├── database.php         # Central database connection layer (MySQL/Mongo/Redis)
+│   ├── login.php            # Secure authentication endpoint with rate limiting
+│   ├── logout.php           # Session invalidation endpoint
+│   ├── profile.php          # Protected profile retrieval and update endpoint
+│   └── register.php         # User registration with compensation rollback
 ├── sql/
-│   └── init.sql                 # MySQL users table schema initialization
+│   └── init.sql             # Safe, idempotent MySQL schema script
 ├── tests/
-│   ├── test_db.php              # Automated database connection verification script
-│   └── test_api_e2e.php         # Automated end-to-end API test suite
-├── docs/
-│   ├── application-flow.md      # Detailed Mermaid architecture and request flow diagrams
-│   └── database-schema.md       # MySQL ER diagram, MongoDB BSON schema & Redis keys
-├── index.html                   # Public welcome page with auth-check auto-redirect
-├── login.html                   # Sign-in page
-├── profile.html                 # Authenticated user profile dashboard
-├── register.html                # User registration page
-├── Dockerfile                   # PHP 8.3 Apache container with extensions
-├── docker-compose.yml           # Multi-service Docker configuration
-├── composer.json                # Composer dependencies and metadata
-├── .env.example                 # Environment configuration template
-├── .gitignore                   # Version control exclusion rules
-└── README.md                    # Comprehensive project documentation
+│   ├── test_api_e2e.php     # Comprehensive 18-step end-to-end integration test
+│   ├── test_db.php          # Database connectivity and schema initialization
+│   ├── test_predis_upstash.php # Diagnostic Upstash Redis TLS verification
+│   └── test_remote_suite.php   # Verification suite for live cloud services
+├── .dockerignore            # Docker build ignore rules (excludes secrets/vendor)
+├── .env.example             # Clean configuration template with placeholders
+├── .gitignore               # Git exclusions (blocks .env and runtime logs)
+├── .htaccess                # Apache directory browsing prevention and headers
+├── docker-compose.yml       # Local multi-service development orchestration
+├── docker-entrypoint.sh     # Dynamic $PORT binder and runtime CA certificate setup
+├── Dockerfile               # Production multi-stage Docker build for Render
+├── health.php               # Lightweight, safe health-check endpoint
+├── index.html               # Landing page
+├── login.html               # Authentication page
+├── profile.html             # User profile and profile editor
+├── register.html            # User registration page
+└── README.md                # Deployment and setup documentation
 ```
 
 ---
 
-## Prerequisites
+## 4. Prerequisites & Required Software
 
-To run this project locally, ensure you have either:
+### For Local Native Development:
+1. **PHP 8.1 or higher** (PHP 8.3 recommended) with extensions:
+   - `pdo`, `pdo_mysql`
+   - `mongodb` (via PECL: `pecl install mongodb`)
+   - `redis` (via PECL: `pecl install redis` or via Composer `predis/predis`)
+   - `zip`, `json`, `session`, `curl`
+2. **Composer 2.x** installed globally (`composer --version`)
+3. **MySQL Server 8.0+**
+4. **MongoDB Community Server 7.0+**
+5. **Redis Server 7.x**
 
-1. **Docker & Docker Compose** (Recommended):
-   - Docker Desktop 24+ or Docker Engine with Docker Compose v2.
-   **OR**
-2. **Native Environment / WSL:**
-   - PHP 8.1 or higher with extensions: `pdo_mysql`, `mongodb`, `redis`, `session`, `json`, `curl`, `mbstring`.
-   - Composer 2.x.
-   - MySQL 8.0 Server running on port 3306.
-   - MongoDB 7.0/8.0 Server running on port 27017.
-   - Redis 6.x/7.x Server running on port 6379.
+### For Containerized Development:
+- **Docker Engine** (24.x+) and **Docker Compose** (v2.x+) installed.
 
 ---
 
-## Installation & Local Setup
+## 5. Local Development Setup
 
-### Option A: Running with Docker Compose (Recommended)
+### Option A: Running with Docker Compose
+
+Docker Compose runs PHP, Apache, MySQL, MongoDB, and Redis in isolated local containers:
 
 1. **Clone the repository:**
    ```bash
@@ -176,204 +157,382 @@ To run this project locally, ensure you have either:
    cd nurahub-auth-system
    ```
 
-2. **Prepare the environment file:**
+2. **Create local environment file:**
    ```bash
    cp .env.example .env
    ```
-   *(The default docker-compose.yml overrides host addresses to use container service names: `mysql`, `mongo`, `redis`).*
 
-3. **Build and launch the containers:**
+3. **Start all services:**
    ```bash
    docker compose up -d --build
    ```
 
-4. **Verify container health:**
+4. **Verify container health and install dependencies:**
    ```bash
-   docker compose ps
-   ```
-   All 4 services (`nurahub_app`, `nurahub_mysql`, `nurahub_mongo`, `nurahub_redis`) will report `healthy` or `running`.
-
-5. **Install Composer dependencies inside the container (first run):**
-   ```bash
-   docker compose exec app composer install --no-interaction
+   docker compose exec app composer install
+   docker compose exec app php tests/test_db.php
    ```
 
-6. **Access the application:**
-   Open your browser to: **[http://localhost:8080](http://localhost:8080)**
+5. **Access the application:**
+   - Web application: `http://localhost:8080`
+   - Health check: `http://localhost:8080/health.php`
 
 ---
 
-### Option B: Running on Native Environment (Host / WSL)
+### Option B: Running on Native Host / WSL
 
-1. **Install PHP Extensions and Services (Ubuntu / Debian example):**
-   ```bash
-   sudo apt-get update
-   sudo apt-get install -y php php-cli php-mysql php-redis php-mongodb php-curl php-mbstring composer mysql-server redis-server
-   ```
-
-2. **Start the Database Services:**
-   ```bash
-   sudo service mysql start
-   sudo service redis-server start
-   sudo service mongod start
-   ```
-
-3. **Install Composer dependencies:**
+1. **Install PHP dependencies:**
    ```bash
    composer install
    ```
 
-4. **Initialize Environment Configuration:**
-   Copy `.env.example` to `.env` and verify database credentials:
+2. **Configure your `.env`:**
    ```bash
    cp .env.example .env
    ```
+   Ensure your local credentials match your local MySQL, MongoDB, and Redis services.
 
-5. **Start PHP's Built-in Web Server:**
+3. **Initialize the database:**
+   ```bash
+   php tests/test_db.php
+   ```
+
+4. **Start the local PHP development server:**
    ```bash
    php -S 127.0.0.1:8080
    ```
-   Navigate to: **[http://127.0.0.1:8080](http://127.0.0.1:8080)**
+   Open `http://localhost:8080` in your web browser.
 
 ---
 
-## Database Initialization
+## 6. Environment Variables Reference
 
-If running via **Docker Compose**, `sql/init.sql` is automatically mounted into `/docker-entrypoint-initdb.d/init.sql` and initialized upon the first startup.
+The application reads configuration from environment variables (or a local `.env` file). **Never hardcode secrets in source files or commit `.env` to Git.**
 
-If running on **Native Environment**, run the following commands:
-```bash
-mysql -u root -p < sql/init.sql
-```
-Or execute the automated setup script:
-```bash
-php tests/test_db.php
-```
-This script tests connectivity to MySQL, MongoDB, and Redis, creating tables and indexes automatically.
+| Variable | Required? | Default / Example | Purpose |
+|---|---|---|---|
+| `APP_ENV` | Optional | `production` | Application mode (`development` or `production`). In production, secure cookies and strict error suppression are active. |
+| `APP_DEBUG` | Optional | `false` | Enable or disable detailed error logging. Never enable in production. |
+| `PORT` | Optional | `10000` | Port for Apache to listen on. Automatically set by Render. |
+| `MYSQL_HOST` | **Required** | `mysql-xxx.aivencloud.com` | MySQL host address (local IP or Aiven hostname). |
+| `MYSQL_PORT` | **Required** | `17702` (Aiven) / `3306` (Local) | MySQL service port. |
+| `MYSQL_DATABASE`| **Required** | `defaultdb` (Aiven) / `nurahub_auth` | Database name for user accounts table. |
+| `MYSQL_USER` | **Required** | `avnadmin` (Aiven) / `nurahub_user` | MySQL account username. |
+| `MYSQL_PASSWORD`| **Required** | `secret_password` | MySQL account password. |
+| `MYSQL_CHARSET` | Optional | `utf8mb4` | Database character set (UTF-8 multi-byte). |
+| `MYSQL_SSL_MODE`| Optional | `REQUIRED` (Aiven) / `PREFERRED` | Enforces TLS connection to MySQL. Set to `REQUIRED` for Aiven. |
+| `MYSQL_SSL_CA` | Optional | `certs/aiven-ca.pem` | Local filesystem path to the Aiven Project CA certificate. |
+| `MYSQL_SSL_CA_CONTENT` | Optional | `-----BEGIN CERTIFICATE-----...` | Raw inline PEM certificate content for hosted environments like Render. |
+| `MONGODB_URI` | **Required** | `mongodb+srv://user:pass@cluster.mongodb.net/?retryWrites=true&w=majority` | Full MongoDB connection string (Atlas or local). |
+| `MONGODB_DATABASE`| **Required** | `nurahub_profiles` | MongoDB database name storing `user_profiles` collection. |
+| `REDIS_HOST` | **Required** | `immune-eagle-xxx.upstash.io` | Redis hostname (Upstash endpoint or `127.0.0.1`). |
+| `REDIS_PORT` | **Required** | `6379` | Redis TCP port. |
+| `REDIS_PASSWORD`| **Required** | `your_upstash_tcp_token` | Redis authentication token / password. |
+| `REDIS_TLS` | Optional | `true` (Upstash) / `false` (Local) | Enforces TLS encryption for Redis connections. |
+| `REDIS_PREFIX` | Optional | `PHPREDIS_SESSION:` | Key namespace prefix for Redis-backed session data. |
+| `SESSION_LIFETIME` | Optional | `3600` | Session lifetime in seconds (default 1 hour). |
+| `SESSION_COOKIE_SECURE` | Optional | `true` (in production) | Enforces `Secure` flag on session cookies (HTTPS). |
+| `SESSION_COOKIE_SAMESITE`| Optional | `Lax` | SameSite attribute for session cookies (`Lax` or `Strict`). |
 
 ---
 
-## How to Test the Application
+## 7. External Cloud Services Setup Guide
+
+This project is pre-configured to run with free-tier cloud services. Follow these instructions to configure each database:
+
+### Aiven Free MySQL Setup
+
+1. **Create an Aiven Account:** Sign up at [aiven.io](https://aiven.io).
+2. **Create Service:** Click **Create Service** > select **MySQL** > choose the **Free Plan**.
+3. **Retrieve Credentials:** In the service overview page:
+   - Note the **Host**, **Port** (e.g. `17702`), **User** (`avnadmin`), and generated **Password**.
+   - Default database is named `defaultdb`.
+4. **Download CA Certificate:**
+   - Under the **Connection information** section, click **Download CA Certificate**.
+   - Save the certificate as `certs/aiven-ca.pem` in your project, or copy its plain text for the `MYSQL_SSL_CA_CONTENT` environment variable in Render.
+5. **Verify TLS Requirement:** Aiven requires SSL mode `REQUIRED`. The application automatically configures `PDO::MYSQL_ATTR_SSL_CA` and verifies the server certificate.
+
+---
+
+### MongoDB Atlas Free Cluster Setup
+
+1. **Create MongoDB Atlas Account:** Sign up at [mongodb.com/atlas](https://www.mongodb.com/atlas).
+2. **Deploy Free Cluster (M0):** Select the **M0 Free Cluster** hosted on AWS, GCP, or Azure.
+3. **Create Database User:**
+   - Under **Security > Database Access**, click **Add New Database User**.
+   - Select **Password Authentication**. Set a secure username (e.g., `nurahub_db_user`) and password.
+   - Assign the **Read and write to any database** privilege.
+4. **Configure Network Access (IP Access List):**
+   - Under **Security > Network Access**, click **Add IP Address**.
+   - **Production Note:** Render Free Web Services use dynamic egress IPs. To allow Render containers to connect, add `0.0.0.0/0` (Allow Access from Anywhere).
+   - *Security Trade-off:* Because access is open to the internet, you must maintain a strong, random password and never share the database credentials.
+5. **Obtain Connection String:**
+   - Click **Connect** > **Drivers** > select **PHP**.
+   - Copy the SRV URI:
+     `mongodb+srv://<username>:<password>@<cluster>.mongodb.net/?retryWrites=true&w=majority`
+   - Set `MONGODB_DATABASE=nurahub_profiles`.
+
+---
+
+### Upstash Free Redis Setup
+
+1. **Create Upstash Account:** Sign up at [upstash.com](https://upstash.com).
+2. **Create Database:**
+   - Click **Create Database**.
+   - Select **Regional / Serverless Redis**.
+   - Enable **TLS (SSL)**.
+3. **Obtain TCP Connection Details:**
+   - Scroll down to the **Connect to your database** section and select the **PHP** or **Redis-cli** tab.
+   - **Important:** Do *not* use the Upstash REST URL. The PHP application uses the native Redis TCP protocol with TLS.
+   - Note the **Host** (e.g., `immune-eagle-xxxx.upstash.io`), **Port** (`6379`), and **Password** (the token).
+4. **Configure Environment:**
+   - Set `REDIS_HOST=<your-endpoint>.upstash.io`
+   - Set `REDIS_PORT=6379`
+   - Set `REDIS_PASSWORD=<your-token>`
+   - Set `REDIS_TLS=true`
+
+---
+
+## 8. GitHub Preparation
+
+Before deploying, verify that your repository is clean and ready for deployment:
+
+1. **Verify `.gitignore`:** Ensure `.env`, `*.pem` (with private keys), and `vendor/` are ignored.
+2. **Verify Composer Lock:** Ensure `composer.lock` is committed to git so Render builds the exact dependency tree:
+   ```bash
+   git status
+   git add .
+   git commit -m "Prepare codebase for Render Docker deployment"
+   git push origin main
+   ```
+
+---
+
+## 9. Render Docker Deployment Guide
+
+Render will build and execute your Docker container automatically from your GitHub repository.
+
+1. **Sign in to Render:** Go to [render.com](https://render.com) and log in.
+2. **Create New Web Service:**
+   - In the Render Dashboard, click **New +** > **Web Service**.
+   - Select **Build and deploy from a Git repository**.
+   - Connect your GitHub account and choose `nurahub-auth-system`.
+3. **Configure Service Settings:**
+   - **Name:** `nurahub-auth-system` (or your preferred name)
+   - **Region:** Choose the region closest to your Aiven/Atlas/Upstash services (e.g., Oregon, Frankfurt, or Singapore).
+   - **Branch:** `main`
+   - **Runtime:** **Docker** (Render detects the root `Dockerfile`).
+   - **Instance Type:** **Free**.
+4. **Configure Environment Variables in Render Dashboard:**
+   Click **Advanced** > **Add Environment Variable** and add:
+
+   | Key | Value |
+   |---|---|
+   | `APP_ENV` | `production` |
+   | `PORT` | `10000` |
+   | `MYSQL_HOST` | `mysql-xxxx.aivencloud.com` |
+   | `MYSQL_PORT` | `17702` |
+   | `MYSQL_DATABASE` | `defaultdb` |
+   | `MYSQL_USER` | `avnadmin` |
+   | `MYSQL_PASSWORD` | `<your-aiven-password>` |
+   | `MYSQL_SSL_MODE` | `REQUIRED` |
+   | `MYSQL_SSL_CA_CONTENT` | *(Paste the full contents of `certs/aiven-ca.pem`)* |
+   | `MONGODB_URI` | `mongodb+srv://<user>:<password>@<cluster>.mongodb.net/?retryWrites=true&w=majority` |
+   | `MONGODB_DATABASE` | `nurahub_profiles` |
+   | `REDIS_HOST` | `<your-upstash-redis>.upstash.io` |
+   | `REDIS_PORT` | `6379` |
+   | `REDIS_PASSWORD` | `<your-upstash-token>` |
+   | `REDIS_TLS` | `true` |
+
+5. **Deploy Service:**
+   - Click **Create Web Service**.
+   - Render will pull your repository, build the Docker image, run the entrypoint, and launch Apache on `0.0.0.0:$PORT`.
+   - Monitor the deployment logs until you see `Your service is live at https://nurahub-auth-system.onrender.com`.
+
+---
+
+## 10. Database Schema & Safe Initialization
+
+The application handles schema initialization automatically and safely.
+
+### Automatic Initialization:
+Visiting `/health.php?check=deep` or running `tests/test_db.php` verifies connectivity and creates:
+- The `users` table in MySQL (if it does not already exist).
+- The unique index `idx_unique_user_id` on the `user_profiles` collection in MongoDB.
+
+### Manual SQL Initialization (Optional):
+If you wish to initialize the table manually in Aiven MySQL Console or a MySQL client:
+```sql
+CREATE TABLE IF NOT EXISTS `users` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `username` VARCHAR(50) NOT NULL,
+  `email` VARCHAR(191) NOT NULL,
+  `password_hash` VARCHAR(255) NOT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_users_username` (`username`),
+  UNIQUE KEY `uk_users_email` (`email`),
+  INDEX `idx_users_created_at` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+---
+
+## 11. Health Checks & System Probes
+
+The application provides a lightweight, safe health check endpoint:
+
+### Endpoint: `GET /health.php`
+- **Purpose:** Used by Render and external uptime monitors to check process availability.
+- **Characteristics:** Returns HTTP 200 with small JSON payload. Does **not** perform heavy database roundtrips on routine pings, avoiding unnecessary cloud egress and database overhead.
+- **Sample Response:**
+  ```json
+  {
+    "status": "healthy",
+    "app": "nurahub-auth-system",
+    "timestamp": 1730245200,
+    "uptime_check": "passed"
+  }
+  ```
+
+### Deep Diagnostic Check: `GET /health.php?check=deep`
+- **Purpose:** Tests live connectivity across MySQL, MongoDB, and Redis without exposing credentials or internal stack traces.
+- **Sample Response:**
+  ```json
+  {
+    "status": "healthy",
+    "app": "nurahub-auth-system",
+    "timestamp": 1730245200,
+    "uptime_check": "passed",
+    "services": "healthy"
+  }
+  ```
+
+---
+
+## 12. Testing & Verification
 
 ### Automated Integration Test Suite
 
-The repository includes a comprehensive, automated CLI test suite (`tests/test_api_e2e.php`) that executes and verifies:
-1. **CSRF Protection:** State-changing requests without CSRF tokens are rejected (HTTP 403).
-2. **Registration Validation:** Rejection of password mismatch, weak passwords, and invalid emails (HTTP 422).
-3. **Account Creation:** Successful insertion of user in MySQL and initial profile document in MongoDB (HTTP 201).
-4. **Duplicate Prevention:** Rejection of duplicate email and duplicate username (HTTP 409).
-5. **Authentication Verification:**
-   - Invalid password rejected (HTTP 401).
-   - Unknown email rejected with generic message (HTTP 401).
-   - Valid credentials succeed, regenerate session ID, and issue cookie (HTTP 200).
-6. **Rate Limiting:** Repeated invalid attempts trigger lockout (HTTP 429).
-7. **Profile Access Control:**
-   - Unauthenticated GET to `profile.php` rejected (HTTP 401).
-   - Authenticated GET returns only the current user's profile.
-8. **Profile Updates:**
-   - Authenticated user can update `full_name`, `age`, `bio`, and `interests` in MongoDB.
-   - Non-permitted fields (such as `username` or `password_hash`) are strictly ignored.
-   - Invalid age range (> 130 or < 1) rejected (HTTP 422).
-9. **Secure Logout:** Session is invalidated from Redis and cookie is expired (HTTP 200).
-10. **Post-Logout Access:** Accessing `profile.php` after logout is rejected (HTTP 401).
+The project includes an automated end-to-end regression test suite (`tests/test_api_e2e.php`) that runs 18 validation checks against the live API:
 
-To run the automated suite:
 ```bash
 php tests/test_api_e2e.php
 ```
 
-### Manual End-to-End Browser Journey
-
-1. **Visit Home Page (`index.html`):**
-   - Click **"Create Account"**.
-2. **Register a New Account (`register.html`):**
-   - Enter a username (e.g. `alex_morgan`).
-   - Enter an email (e.g. `alex@example.com`).
-   - Enter password `Password123!` (observe the dynamic strength meter turn green).
-   - Re-type matching password.
-   - Click **"Create Account"** (button disables with a spinner).
-   - Green confirmation banner appears with link to **"Go to Login"**.
-3. **Sign In (`login.html`):**
-   - Enter invalid password to observe generic error: *"Invalid email or password."*
-   - Enter registered credentials and click **"Sign In"**.
-   - Immediate redirect to `profile.html`.
-4. **View & Edit Profile (`profile.html`):**
-   - Observe skeleton loader resolve to account details (`username`, `email`, `created_at`).
-   - Click **"Edit Profile"**.
-   - Enter Full Name (e.g. `Alex Morgan`), Age (`28`), Bio, and comma-separated interests (`Cloud Architecture, PHP, Security, AI`).
-   - Click **"Save Changes"**.
-   - Profile card updates immediately with styled interest badges and MongoDB confirmation banner.
-5. **Log Out:**
-   - Click **"Logout"** in the top navigation.
-   - Session is invalidated from Redis and browser redirects to `login.html`.
-   - Attempting to navigate back to `profile.html` redirects back to `login.html`.
+Checks executed:
+1. `GET /php/auth_check.php` - Returns unauthenticated status and CSRF token.
+2. `POST /php/register.php` - Rejects request without CSRF token (HTTP 403).
+3. `POST /php/register.php` - Rejects mismatched passwords (HTTP 422).
+4. `POST /php/register.php` - Rejects weak password (HTTP 422).
+5. `POST /php/register.php` - Creates new user in MySQL & initial profile in MongoDB (HTTP 201).
+6. `POST /php/register.php` - Rejects duplicate email (HTTP 409).
+7. `POST /php/register.php` - Rejects duplicate username (HTTP 409).
+8. `POST /php/login.php` - Rejects incorrect password with generic message (HTTP 401).
+9. `POST /php/login.php` - Rejects non-existent email with generic message (HTTP 401).
+10. `POST /php/login.php` - Successfully authenticates, regenerates session ID, and issues cookie (HTTP 200).
+11. `GET /php/profile.php` - Retrieves user account and MongoDB profile for authenticated session (HTTP 200).
+12. `POST /php/profile.php` - Updates profile details (Full Name, Age, Bio, Interests) in MongoDB (HTTP 200).
+13. `GET /php/profile.php` - Confirms updated MongoDB fields persist across requests (HTTP 200).
+14. `POST /php/profile.php` - Rejects invalid age values (> 130 or < 1) (HTTP 422).
+15. `POST /php/logout.php` - Invalidates session in Redis and destroys cookie (HTTP 200).
+16. `GET /php/profile.php` - Verifies access is blocked after logout (HTTP 401).
+17. Rate Limiting Check - Verifies brute-force protection triggers lockout after 5 failures (HTTP 429).
+18. Health Check Verification - Verifies `/health.php` responds with HTTP 200.
 
 ---
 
-## Security Measures Implemented
+### Testing Redis Session Persistence
 
-1. **SQL Injection Defense:** All database queries involving user input use **PDO prepared statements** with bound parameters. Emulated prepares are explicitly disabled (`PDO::ATTR_EMULATE_PREPARES => false`).
-2. **Password Hashing:** Passwords are cryptographically hashed using PHP `password_hash()` with `PASSWORD_DEFAULT` (Bcrypt with cost factor 10 or Argon2id). Plain-text passwords and password hashes are never stored in sessions or returned in JSON responses.
-3. **Cross-Site Request Forgery (CSRF) Defense:** Session-bound 64-character cryptographic tokens (`random_bytes(32)`) are verified on all state-changing HTTP requests (`POST`, `PUT`, `DELETE`).
-4. **Session Fixation Prevention:** Upon privilege elevation during login, `session_regenerate_id(true)` destroys the previous session ID and assigns a fresh, unguessable token.
+To verify that Upstash Redis is storing sessions and persisting data across separate HTTP requests:
+
+1. **Run the Upstash TLS diagnostic script:**
+   ```bash
+   php tests/test_predis_upstash.php
+   ```
+2. **Observe the test sequence:**
+   - A session ID is generated: `go2qdmfgm4uvji561qvmu0ai73`
+   - Session data (`user_id`, `username`, `authenticated`) is written.
+   - The session is closed (`session_write_close()`).
+   - The test reads the raw key directly from Upstash Redis:
+     `Key found: PHPREDIS_SESSION:go2qdmfgm4uvji561qvmu0ai73`
+   - In a second request, the session is resumed using the same session ID.
+   - Data is verified to match exactly.
+
+---
+
+### Manual Browser Journey
+
+1. Open `https://<your-render-url>.onrender.com/`.
+2. Click **Create Account** (`register.html`):
+   - Enter username, email, and password (e.g. `Password123!`). Observe the dynamic strength indicator.
+   - Click **Create Account**. A green success notification confirms creation.
+3. Click **Sign In** (`login.html`):
+   - Enter incorrect credentials to verify generic error feedback.
+   - Enter registered credentials. Upon success, browser redirects to `profile.html`.
+4. Manage Profile (`profile.html`):
+   - Observe account data loaded asynchronously from MySQL and MongoDB.
+   - Click **Edit Profile**, update your Bio, Age, and Interests (e.g. `Cloud, PHP, Docker`).
+   - Click **Save Changes**. The UI displays interest badges and saves to MongoDB.
+5. Click **Logout**:
+   - The session is deleted from Upstash Redis, and the browser redirects to `login.html`.
+   - Attempting to revisit `profile.html` redirects to login.
+
+---
+
+## 13. Security Measures Implemented
+
+1. **SQL Injection Defense:** All MySQL operations use **PDO prepared statements** with bound parameters. Emulated prepares are disabled (`PDO::ATTR_EMULATE_PREPARES => false`).
+2. **Password Hashing:** Passwords are cryptographically hashed using `password_hash()` with `PASSWORD_DEFAULT` (Bcrypt). Passwords are never stored in plain text, never stored in session state, and never returned in API payloads.
+3. **CSRF Mitigation:** Cryptographic 64-character tokens (`random_bytes(32)`) are tied to the server-side Redis session and validated on every state-changing HTTP request (`POST`, `PUT`, `DELETE`).
+4. **Session Fixation Defense:** `session_regenerate_id(true)` is executed immediately upon successful authentication to invalidate old session identifiers.
 5. **Strict Cookie Flags:** Session cookies are configured with:
-   - `HttpOnly = true` (prevents JavaScript access via `document.cookie`).
-   - `SameSite = Lax` (mitigates cross-site request attacks).
-   - `Secure = true` (enforced when HTTPS is detected or configured).
+   - `HttpOnly = true` (blocks JavaScript access via `document.cookie`).
+   - `SameSite = Lax` (prevents cross-site request forgery).
+   - `Secure = true` (automatically enforced in production and HTTPS requests).
 6. **Brute-Force Rate Limiting:** Redis counters track failed attempts per IP and target email. Reaching 5 failures initiates a 5-minute lockout (HTTP 429).
-7. **Cross-Database Consistency Compensation:** If MongoDB profile initialization encounters a failure after MySQL account creation, a compensation rollback routine automatically deletes the inserted MySQL row, preventing orphaned ghost accounts.
-8. **Information Disclosure Prevention:** Public API responses do not expose internal database errors, SQL syntax, file paths, or whether an email address exists in the system.
-9. **XSS Mitigation:** All dynamic variables rendered in the DOM are escaped using `htmlspecialchars()` on the backend and context-safe replacement in JavaScript.
+7. **Cross-Database Rollback Compensation:** If MongoDB profile initialization fails after MySQL user insertion, a compensation routine removes the MySQL user row to prevent orphaned accounts.
+8. **Information Disclosure Prevention:** Generic error responses prevent account enumeration. Database errors and stack traces are logged to `stderr` and never returned to the client.
+9. **XSS Mitigation:** Dynamic values are sanitized using `htmlspecialchars()` on the server and context-safe text assignment in JavaScript.
 
 ---
 
-## Production Deployment Guide
+## 14. Common Connection & TLS Troubleshooting
 
-Deploying this multi-database application in a production environment requires configuring PHP, MySQL, MongoDB, and Redis.
+### 1. Aiven MySQL: `SSL operation failed with code 1` or `certificate verify failed`
+- **Cause:** PHP cannot find or verify the Aiven CA certificate.
+- **Solution:** Ensure `MYSQL_SSL_MODE=REQUIRED` is set and the full certificate content is pasted in `MYSQL_SSL_CA_CONTENT` in the Render environment variables. The entrypoint script saves this certificate to `/etc/ssl/certs/aiven-ca.pem`.
 
-### Architectural Hosting Options
+### 2. MongoDB Atlas: `No suitable servers found` or `connection timed out`
+- **Cause:** Atlas Network Access IP Access List is blocking Render's outgoing traffic.
+- **Solution:** In MongoDB Atlas > **Network Access**, add `0.0.0.0/0` (Allow access from anywhere). Ensure your database user password has no unencoded special characters in the connection string.
 
-Because few single hosting platforms provide all three databases out of the box, practical production deployments typically utilize one of the following architectures:
+### 3. Upstash Redis: Connection Hang or TLS Handshake Failure
+- **Cause:** Connecting to Upstash over plain TCP without TLS, or using legacy PhpRedis built without OpenSSL stream integration.
+- **Solution:** The project bundles `predis/predis` (v3.7) to guarantee seamless TLS stream connections to Upstash. Ensure `REDIS_TLS=true` and `REDIS_PORT=6379`.
 
-#### Option 1: Container Orchestration (Render, AWS ECS, DigitalOcean App Platform, or GCP Cloud Run)
-- Deploy the Docker container built from the provided `Dockerfile`.
-- Attach managed cloud databases:
-  - **MySQL:** AWS RDS MySQL, DigitalOcean Managed MySQL, or PlanetScale.
-  - **MongoDB:** MongoDB Atlas (M0 Free Tier or Dedicated Cluster).
-  - **Redis:** Upstash Redis (Serverless) or AWS ElastiCache.
-- Set environment variables (`MYSQL_HOST`, `MONGO_URI`, `REDIS_HOST`, `REDIS_PASSWORD`, etc.) in the platform's dashboard.
-
-#### Option 2: Traditional Cloud VPS (Ubuntu 22.04 / 24.04 on DigitalOcean, Linode, or AWS EC2)
-- Install Nginx, PHP 8.3-FPM, MySQL Server, MongoDB, and Redis Server.
-- Point Nginx web root to `/var/www/nurahub-auth-system`.
-- Secure databases behind `127.0.0.1` and enable firewall rules (`ufw`).
-- Obtain a free SSL certificate via Let's Encrypt (`certbot --nginx`).
-- Configure `APP_ENV=production` and `SESSION_COOKIE_SECURE=true` in `.env`.
+### 4. Render Port Mismatch: `Timed out waiting for port 10000`
+- **Cause:** Apache configured to listen on port 80 instead of Render's dynamic `$PORT`.
+- **Solution:** The project's `docker-entrypoint.sh` dynamically replaces Apache's listening port with `$PORT` (default 10000) on startup.
 
 ---
 
-## Troubleshooting & Known Limitations
+## 15. Free-Tier Limitations & Cold-Start Behavior
 
-### Common Issues and Resolutions
+When hosting on free-tier cloud infrastructure, be aware of the following expected behaviors:
 
-1. **"Composer autoloader not found"**
-   - *Cause:* `composer install` has not been executed yet.
-   - *Fix:* Run `composer install` locally or `docker compose exec app composer install`.
-
-2. **"Database service temporarily unavailable"**
-   - *Cause:* MySQL server is stopped or credentials in `.env` are mismatched.
-   - *Fix:* Verify MySQL is running (`service mysql status`) and test connection credentials with `php tests/test_db.php`.
-
-3. **"Failed to connect to Redis server"**
-   - *Cause:* Redis service is inactive or `ext-redis` is missing.
-   - *Fix:* Start Redis (`sudo service redis-server start`) or install the extension (`sudo apt-get install php-redis`).
-
-4. **"Invalid or missing CSRF token"**
-   - *Cause:* Session expired or request sent without token.
-   - *Fix:* Refresh the webpage; the frontend will automatically fetch a new session token via `php/auth_check.php`.
+1. **Render Free Web Service Spindown:**
+   - Free services on Render automatically spin down after 15 minutes of inactivity.
+   - The first HTTP request after spindown initiates a cold start that takes approximately **45 to 60 seconds** while Render provisions the container. Subsequent requests respond instantly.
+2. **Aiven Free MySQL Plan:**
+   - 1 CPU and 1GB RAM limit. Suitable for assignment evaluation. Connection pooling is capped at 20 concurrent connections.
+3. **MongoDB Atlas M0 Free Tier:**
+   - Shared RAM and 512MB storage limit. Maximum 500 concurrent connections.
+4. **Upstash Free Redis Tier:**
+   - Serverless free tier supports up to 10,000 commands per day. More than sufficient for student evaluations and testing.
 
 ---
 
 ## License
 
-This project is licensed under the MIT License. Designed for educational and internship evaluation purposes.
+This project is open-source and available under the [MIT License](LICENSE). Built for educational and internship evaluation purposes.

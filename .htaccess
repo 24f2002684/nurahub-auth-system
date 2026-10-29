@@ -1,0 +1,31 @@
+# ==============================================================================
+# NuraHub Auth System - Apache Security & Routing Configuration
+# ==============================================================================
+
+# 1. Disable directory browsing
+Options -Indexes +FollowSymLinks
+
+# 2. Set default index file
+DirectoryIndex index.html index.php
+
+# 3. Deny direct web access to sensitive configuration, sql, and environment files
+<FilesMatch "^(\.env|\.git|\.dockerignore|Dockerfile|composer\.(json|lock)|docker-compose.*\.yml)$">
+    Require all denied
+</FilesMatch>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Block access to hidden dotfiles (e.g., .env)
+    RewriteRule (^\.|/\.) - [F]
+
+    # Block access to sql directory
+    RewriteRule ^sql/ - [F,L]
+</IfModule>
+
+# 4. Security Headers
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>

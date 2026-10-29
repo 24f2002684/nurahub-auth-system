@@ -50,46 +50,110 @@ ini_set('display_startup_errors', '0');
 ini_set('log_errors', '1');
 error_reporting(E_ALL);
 
+// Track global session handler reference to prevent garbage collection
+$GLOBALS['__nurahub_session_handler'] = null;
+
 /**
- * Configure and initialize secure PHP sessions backed by Redis
+ * Configure and initialize secure PHP sessions backed by Redis (supports both local Redis & Upstash TLS)
  */
 function init_session(): void {
     if (session_status() === PHP_SESSION_ACTIVE) {
         return;
     }
 
-    $redisHost = env('REDIS_HOST', '127.0.0.1');
-    $redisPort = env('REDIS_PORT', '6379');
-    $redisPassword = env('REDIS_PASSWORD', '');
-    $redisTimeout = env('REDIS_TIMEOUT', '2.5');
-    $redisPrefix = env('REDIS_PREFIX', 'PHPREDIS_SESSION:');
-    $lifetime = (int) env('SESSION_LIFETIME', 3600);
-    $cookieName = env('SESSION_COOKIE_NAME', 'nurahub_session');
-    $secureCookie = filter_var(env('SESSION_COOKIE_SECURE', false), FILTER_VALIDATE_BOOLEAN);
-    $sameSite = env('SESSION_COOKIE_SAMESITE', 'Lax');
+    $redisHost = (string) env('REDIS_HOST', '127.0.0.1');
+    $redisPort = (int) env('REDIS_PORT', 6379);
+    $redisPassword = (string) env('REDIS_PASSWORD', '');
+    $redisTimeout = (float) env('REDIS_TIMEOUT', 3.0);
+    $redisPrefix = (string) env('REDIS_PREFIX', 'PHPREDIS_SESSION:');
+    $redisUrl = (string) env('REDIS_URL', '');
+    $isTls = filter_var(env('REDIS_TLS', false), FILTER_VALIDATE_BOOLEAN)
+        || str_contains($redisHost, 'upstash.io')
+        || str_starts_with($redisUrl, 'rediss://');
 
-    // Auto-enable secure cookies if request is over HTTPS
-    if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
+    $lifetime = (int) env('SESSION_LIFETIME', 3600);
+    $cookieName = (string) env('SESSION_COOKIE_NAME', 'nurahub_session');
+    $secureCookie = filter_var(env('SESSION_COOKIE_SECURE', false), FILTER_VALIDATE_BOOLEAN);
+    $sameSite = (string) env('SESSION_COOKIE_SAMESITE', 'Lax');
+
+    $appEnv = (string) env('APP_ENV', 'production');
+    // Auto-enable secure cookies in production or if request is over HTTPS (including reverse proxies like Render)
+    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
+
+    if ($appEnv === 'production' || $isHttps) {
         $secureCookie = true;
     }
 
-    // Configure Redis session handler if ext-redis is present
-    if (extension_loaded('redis') && !empty($redisHost)) {
-        ini_set('session.save_handler', 'redis');
+    // Configure Redis session handler
+    if (!empty($redisHost) || !empty($redisUrl)) {
+        if ($isTls && class_exists('Predis\Client')) {
+            // Upstash / TLS Redis: Use Predis Session Handler with TLS stream context
+            $predisParams = [
+                'scheme' => 'tls',
+                'host' => $redisHost,
+                'port' => $redisPort,
+                'timeout' => $redisTimeout,
+                'read_write_timeout' => $redisTimeout,
+                'ssl' => [
+                    'verify_peer' => true,
+                    'verify_peer_name' => true,
+                    'SNI_enabled' => true
+                ]
+            ];
 
-        $authQuery = '';
-        if (!empty($redisPassword)) {
-            $authQuery = '&auth=' . rawurlencode($redisPassword);
+            if (!empty($redisPassword)) {
+                $predisParams['password'] = $redisPassword;
+            }
+
+            if (!empty($redisUrl)) {
+                $parsed = parse_url($redisUrl);
+                if ($parsed) {
+                    $predisParams['host'] = $parsed['host'] ?? $redisHost;
+                    $predisParams['port'] = $parsed['port'] ?? $redisPort;
+                    if (!empty($parsed['pass'])) {
+                        $predisParams['password'] = $parsed['pass'];
+                    }
+                    if (($parsed['scheme'] ?? '') === 'rediss' || ($parsed['scheme'] ?? '') === 'tls') {
+                        $predisParams['scheme'] = 'tls';
+                    }
+                }
+            }
+
+            try {
+                $predisClient = new Predis\Client($predisParams, [
+                    'prefix' => $redisPrefix
+                ]);
+
+                $handler = new Predis\Session\Handler($predisClient, [
+                    'gc_maxlifetime' => $lifetime
+                ]);
+
+                session_set_save_handler($handler, true);
+                $GLOBALS['__nurahub_session_handler'] = $handler;
+            } catch (Exception $e) {
+                error_log('[Session Redis TLS Error] ' . $e->getMessage());
+            }
+        } elseif (extension_loaded('redis')) {
+            // Local / Standard TCP Redis: Use native PhpRedis save handler
+            ini_set('session.save_handler', 'redis');
+
+            $authQuery = '';
+            if (!empty($redisPassword)) {
+                $authQuery = '&auth=' . rawurlencode($redisPassword);
+            }
+            $scheme = $isTls ? 'tls' : 'tcp';
+            $savePath = sprintf(
+                '%s://%s:%d?prefix=%s&timeout=%s%s',
+                $scheme,
+                $redisHost,
+                $redisPort,
+                $redisPrefix,
+                $redisTimeout,
+                $authQuery
+            );
+            ini_set('session.save_path', $savePath);
         }
-        $savePath = sprintf(
-            'tcp://%s:%s?prefix=%s&timeout=%s%s',
-            $redisHost,
-            $redisPort,
-            $redisPrefix,
-            $redisTimeout,
-            $authQuery
-        );
-        ini_set('session.save_path', $savePath);
     }
 
     // Strict session settings

@@ -1,13 +1,15 @@
 -- =============================================================================
 -- NuraHub Auth & User Profile System - MySQL Schema Initialization
+-- Safe and idempotent: creates tables without dropping existing data
 -- =============================================================================
 
-CREATE DATABASE IF NOT EXISTS `nurahub_auth` 
-  CHARACTER SET utf8mb4 
-  COLLATE utf8mb4_unicode_ci;
+-- For Local MySQL development (creates database if missing):
+-- CREATE DATABASE IF NOT EXISTS `nurahub_auth` 
+--   CHARACTER SET utf8mb4 
+--   COLLATE utf8mb4_unicode_ci;
+-- USE `nurahub_auth`;
 
-USE `nurahub_auth`;
-
+-- Main User Accounts Table (Compatible with local MySQL and Aiven defaultdb)
 CREATE TABLE IF NOT EXISTS `users` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `username` VARCHAR(50) NOT NULL,
