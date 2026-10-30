@@ -58,9 +58,18 @@ if ($checkType === 'deep') {
         $dbStatus = Database::initializeDatabases();
         $allOk = ($dbStatus['mysql'] ?? false) && ($dbStatus['mongodb'] ?? false) && ($dbStatus['redis'] ?? false);
         $connectivity = $allOk ? 'healthy' : 'degraded';
+        $servicesDetail = [
+            'mysql' => ($dbStatus['mysql'] ?? false) ? 'connected' : 'failed',
+            'mongodb' => ($dbStatus['mongodb'] ?? false) ? 'connected' : 'failed',
+            'redis' => ($dbStatus['redis'] ?? false) ? 'connected' : 'failed'
+        ];
+        if (!empty($dbStatus['errors'])) {
+            $servicesDetail['errors'] = $dbStatus['errors'];
+        }
     } catch (Throwable $e) {
         error_log('[Health Check Exception] ' . $e->getMessage());
         $connectivity = 'degraded';
+        $servicesDetail = ['error' => $e->getMessage()];
     }
 }
 
@@ -75,6 +84,9 @@ $response = [
 
 if ($connectivity !== null) {
     $response['services'] = $connectivity;
+    if (isset($servicesDetail)) {
+        $response['details'] = $servicesDetail;
+    }
 }
 
 echo json_encode($response, JSON_UNESCAPED_SLASHES);

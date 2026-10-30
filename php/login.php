@@ -150,7 +150,7 @@ try {
         'redirect' => 'profile.html'
     ]);
 
-} catch (PDOException $e) {
+} catch (Throwable $e) {
     error_log('[Login MySQL Error] ' . $e->getMessage());
     send_json_error('Authentication service is currently unavailable. Please try again later.', [], 500);
 }

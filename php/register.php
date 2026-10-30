@@ -125,9 +125,9 @@ try {
 
     $newUserId = (int) $pdo->lastInsertId();
 
-} catch (PDOException $e) {
+} catch (Throwable $e) {
     error_log('[Registration MySQL Error] ' . $e->getMessage());
-    if ($e->getCode() === '23000') {
+    if ($e->getCode() === '23000' || str_contains($e->getMessage(), 'Duplicate')) {
         send_json_error('Username or email is already registered.', [], 409);
     }
     send_json_error('Unable to create account at this time. Please try again later.', [], 500);
@@ -150,7 +150,7 @@ try {
 
     $profilesCollection->insertOne($profileDocument);
 
-} catch (Exception $e) {
+} catch (Throwable $e) {
     // Compensation Strategy: If MongoDB profile creation fails, roll back (delete) the MySQL user record
     // to prevent partial ghost accounts.
     error_log('[Registration MongoDB Error] ' . $e->getMessage());
@@ -159,7 +159,7 @@ try {
             $compensationStmt = $pdo->prepare('DELETE FROM users WHERE id = :id');
             $compensationStmt->execute([':id' => $newUserId]);
             error_log("[Registration Compensation] Rolled back MySQL user ID {$newUserId} due to MongoDB failure.");
-        } catch (Exception $compEx) {
+        } catch (Throwable $compEx) {
             error_log('[Registration Compensation Failure] ' . $compEx->getMessage());
         }
     }

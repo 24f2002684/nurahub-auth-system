@@ -36,7 +36,7 @@ if ($method === 'GET') {
         if (!$account) {
             send_json_error('Account not found.', [], 404);
         }
-    } catch (PDOException $e) {
+    } catch (Throwable $e) {
         error_log('[Profile MySQL Error] ' . $e->getMessage());
         send_json_error('Database error while retrieving account details.', [], 500);
     }
@@ -61,12 +61,12 @@ if ($method === 'GET') {
             $profileData['age'] = isset($doc['age']) && is_numeric($doc['age']) ? (int) $doc['age'] : null;
             $profileData['bio'] = (string) ($doc['bio'] ?? '');
 
-            // Convert BSONArray or plain array to PHP array
+            // Convert array or Traversable BSONArray to plain PHP array
             $rawInterests = $doc['interests'] ?? [];
-            if ($rawInterests instanceof MongoDB\Model\BSONArray) {
-                $profileData['interests'] = iterator_to_array($rawInterests);
-            } elseif (is_array($rawInterests)) {
+            if (is_array($rawInterests)) {
                 $profileData['interests'] = array_values($rawInterests);
+            } elseif ($rawInterests instanceof Traversable) {
+                $profileData['interests'] = iterator_to_array($rawInterests);
             } else {
                 $profileData['interests'] = [];
             }
@@ -87,7 +87,7 @@ if ($method === 'GET') {
                 'updated_at' => $now
             ]);
         }
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
         error_log('[Profile MongoDB Error] ' . $e->getMessage());
         // Do not crash the entire endpoint if MongoDB is momentarily lagging; return default structure
     }

@@ -46,30 +46,40 @@ class Database {
         // ---------------------------------------------------------------------
         // Aiven / Remote MySQL TLS Configuration
         // ---------------------------------------------------------------------
+        $isSslRequired = str_contains($host, 'aivencloud.com') 
+            || env('MYSQL_SSL_MODE') === 'REQUIRED' 
+            || !empty(env('MYSQL_SSL_CA_CONTENT'));
+
         $caPath = null;
-        $envCa = env('MYSQL_SSL_CA', '');
-        $envCaContent = env('MYSQL_SSL_CA_CONTENT', '');
+        if ($isSslRequired) {
+            $envCa = env('MYSQL_SSL_CA', '');
+            $envCaContent = env('MYSQL_SSL_CA_CONTENT', '');
 
-        if (!empty($envCa) && file_exists((string) $envCa)) {
-            $caPath = (string) $envCa;
-        } elseif (!empty($envCaContent)) {
-            // Write certificate content to secure temp file if provided via environment
-            $tempCa = sys_get_temp_dir() . '/aiven-ca.pem';
-            if (!file_exists($tempCa) || file_get_contents($tempCa) !== $envCaContent) {
+            $candidatePaths = [
+                $envCa,
+                dirname(__DIR__) . '/certs/aiven-ca.pem',
+                __DIR__ . '/../certs/aiven-ca.pem',
+                '/etc/ssl/certs/aiven-ca.pem',
+                sys_get_temp_dir() . '/aiven-ca.pem'
+            ];
+
+            foreach ($candidatePaths as $path) {
+                if (!empty($path) && file_exists((string) $path)) {
+                    $caPath = (string) $path;
+                    break;
+                }
+            }
+
+            if ($caPath === null && !empty($envCaContent)) {
+                $tempCa = sys_get_temp_dir() . '/aiven-ca.pem';
                 file_put_contents($tempCa, $envCaContent);
+                $caPath = $tempCa;
             }
-            $caPath = $tempCa;
-        } else {
-            // Check default certs/aiven-ca.pem in project root
-            $defaultCa = dirname(__DIR__) . '/certs/aiven-ca.pem';
-            if (file_exists($defaultCa) && (str_contains($host, 'aivencloud.com') || env('MYSQL_SSL_MODE') === 'REQUIRED')) {
-                $caPath = $defaultCa;
-            }
-        }
 
-        if ($caPath !== null) {
-            $options[PDO::MYSQL_ATTR_SSL_CA] = $caPath;
-            $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = true;
+            if ($caPath !== null) {
+                $options[PDO::MYSQL_ATTR_SSL_CA] = $caPath;
+                $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = true;
+            }
         }
 
         try {
