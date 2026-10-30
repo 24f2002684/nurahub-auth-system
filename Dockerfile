@@ -18,7 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     default-mysql-client \
     ca-certificates \
     && docker-php-ext-install -j$(nproc) pdo pdo_mysql zip \
-    && pecl install mongodb redis \
+    && pecl install mongodb-1.20.1 redis \
     && docker-php-ext-enable mongodb redis \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -57,7 +57,7 @@ WORKDIR /var/www/html
 COPY composer.json composer.lock* ./
 
 # Install production dependencies reproducibly
-RUN composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --ignore-platform-req=ext-mongodb
+RUN composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
 
 # Copy application source files
 COPY . .

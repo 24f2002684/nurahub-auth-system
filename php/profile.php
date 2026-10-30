@@ -224,7 +224,7 @@ if ($method === 'GET') {
             'csrf_token' => get_csrf_token()
         ]);
 
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
         error_log('[Profile Update MongoDB Error] ' . $e->getMessage());
         send_json_error('Unable to save profile changes. Please try again later.', [], 500);
     }
